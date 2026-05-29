@@ -605,7 +605,7 @@ body::after{
   <p class="final-sub">In every version of this life, in every universe that exists — I would still choose you.</p>
   <div class="hr" style="width:100%;max-width:320px"></div>
   <p class="final-from">With everything I have, — <span id="finalFrom">me</span></p>
-  <button class="gbtn" id="forgiveBtn" onclick="goTo(6)">Share this letter 🌹</button>
+  <button class="gbtn" id="forgiveBtn" onclick="isView ? forgiveMe() : goTo(6)">Share this letter 🌹</button>
   <p id="finalMsg" style="margin-top:10px;font-size:13px;color:var(--rose2);opacity:0;transition:opacity .5s;display:none">Always yours. Always. 💗</p>
 </div>
 
@@ -633,16 +633,40 @@ body::after{
       <h2 class="pw-title">Get Your Shareable Link</h2>
       <p class="pw-sub">One payment — they receive the exact<br>beautiful letter you just previewed.</p>
 
-      <p class="pw-price">₹99</p>
-      <p class="pw-price-sub">One-time · Instant link · No subscription</p>
+      <!-- Dynamic price display -->
+      <p class="pw-price">
+        <span id="origPrice" style="display:none;font-size:0.55em;text-decoration:line-through;opacity:.45;margin-right:8px;vertical-align:middle"></span><span id="displayPrice">₹99</span>
+      </p>
+      <p class="pw-price-sub" style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">
+        One-time · Instant link · No subscription
+        <span id="discountTag" style="display:none;background:rgba(58,122,74,.12);border:1px solid rgba(58,122,74,.3);color:#3a7a4a;font-size:10px;letter-spacing:.08em;padding:2px 9px;border-radius:50px"></span>
+      </p>
 
-      <div class="pw-features" style="margin-bottom:24px">
+      <div class="pw-features" style="margin-bottom:20px">
         <div class="pw-feature"><span class="pf-icon">🔗</span> A unique link personalised with your names &amp; message</div>
         <div class="pw-feature"><span class="pf-icon">🎵</span> Music, petals, animations — exactly what you saw</div>
         <div class="pw-feature"><span class="pf-icon">⚡</span> Copy &amp; send it in under 30 seconds after payment</div>
       </div>
 
-      <button class="gbtn" style="width:100%" onclick="startPayment()">Pay ₹99 &amp; Get My Link 🌹</button>
+      <!-- Discount code input -->
+      <div style="margin-bottom:18px">
+        <p style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Have a discount code?</p>
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <input id="discountInput" type="text" placeholder="e.g. LOVE10"
+            style="flex:1;background:rgba(255,255,255,.55);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-family:'Lato',sans-serif;font-size:13px;color:var(--text);letter-spacing:.1em;text-transform:uppercase;outline:none;transition:border-color .2s"
+            onkeydown="if(event.key==='Enter')applyDiscountCode()"
+          />
+          <button onclick="applyDiscountCode()"
+            style="background:rgba(212,96,106,.12);border:1px solid rgba(212,96,106,.3);border-radius:10px;padding:10px 16px;cursor:pointer;color:var(--rose2);font-family:'Lato',sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;transition:all .2s"
+            onmouseover="this.style.background='rgba(212,96,106,.22)'" onmouseout="this.style.background='rgba(212,96,106,.12)'">
+            Apply
+          </button>
+        </div>
+        <p id="discountMsg" style="font-size:12px;margin-top:6px;min-height:18px;transition:all .2s"></p>
+        <button id="removeDiscount" onclick="removeDiscount()" style="display:none;background:none;border:none;font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline;padding:0;margin-top:2px">Remove discount</button>
+      </div>
+
+      <button id="payBtn" class="gbtn" style="width:100%" onclick="startPayment()">Pay ₹99 &amp; Get My Link 🌹</button>
       <p class="pw-secure">🔒 Secured by Razorpay &nbsp;·&nbsp; UPI · Cards · Net Banking · Wallets</p>
     </div>
 
@@ -672,10 +696,18 @@ body::after{
 const P = (()=>{
   const q = new URLSearchParams(location.search);
   const d = k => { const v = q.get(k); return v ? decodeURIComponent(v) : ''; };
-  return { name: d('name'), from: d('from'), msg: d('msg') };
+  return {
+    name: d('name'),
+    from: d('from'),
+    msg:  d('msg'),
+    view: q.get('view') === '1'   // true = recipient viewing the letter
+  };
 })();
 
-const isExp = !!P.name;
+// isView = recipient opened the shared link → go straight to letter
+// isExp  = any URL with a name param (creator preview OR recipient)
+const isView = P.view && !!P.name;
+const isExp  = !!P.name;
 
 /* ════════════════════════════════════════════
    §B  PRE-WRITTEN APOLOGY MESSAGES
@@ -718,19 +750,49 @@ const APOLOGY_CARDS = [
 /* ════════════════════════════════════════════
    §C  PAGE SYSTEM
 ════════════════════════════════════════════*/
-let cur = isExp ? 1 : 0;
+// isView = shared link recipient → start at pg1, no pg0/pg6
+// isExp without view = creator preview flow → start at pg0
+let cur = isView ? 1 : 0;
 const pages   = document.querySelectorAll('.pg');
 const dotsEl  = document.getElementById('pgDots');
 const allDots = document.querySelectorAll('.pdot');
 
-// Preview mode: creator is previewing before paying
 let isPreview = false;
 
 function initApp(){
   pages.forEach(p => p.classList.remove('active'));
   document.getElementById('pg'+cur).classList.add('active');
 
-  if(isExp){
+  if(isView){
+    // ── RECIPIENT: pure letter experience, no payment, no preview banner ──
+    dotsEl.style.display = 'flex';
+    updateDots();
+    document.getElementById('introName').textContent = P.name;
+    document.getElementById('finalFrom').textContent = P.from || 'me';
+    buildCards();
+    startCountdown();
+    startLoading();
+
+    // Auto-start music on first tap/click anywhere (browser requires gesture)
+    const autoMusic = ()=>{
+      if(!playing){ startMusic(); mBtn.textContent='🎶'; mBtn.classList.add('spin'); }
+      document.removeEventListener('click', autoMusic);
+      document.removeEventListener('touchstart', autoMusic);
+    };
+    document.addEventListener('click',    autoMusic, { once: true });
+    document.addEventListener('touchstart', autoMusic, { once: true });
+
+    // Hide pg6 dot — recipient never reaches payment page
+    allDots.forEach(d=>{ if(+d.dataset.p===6) d.style.display='none'; });
+
+    // Change final page button to "Forgive me?" for recipient
+    const fb = document.getElementById('forgiveBtn');
+    if(fb) fb.textContent = 'Forgive me? 🥀';
+
+  } else if(isExp){
+    // ── CREATOR PREVIEW MODE (has name params but no view=1) ──
+    // This shouldn't normally happen now since creator uses the form
+    // but handle gracefully
     dotsEl.style.display = 'flex';
     updateDots();
     document.getElementById('introName').textContent = P.name;
@@ -739,6 +801,7 @@ function initApp(){
     startCountdown();
     startLoading();
   }
+  // else: creator on pg0 — nothing to init
 }
 
 // Called when creator hits "Preview Your Letter"
@@ -784,6 +847,8 @@ function startPreview(){
 
 let transitioning = false;
 function goTo(n){
+  // Recipients cannot reach pg0 (form) or pg6 (payment)
+  if(isView && (n === 0 || n === 6)) return;
   if(transitioning) return;
   transitioning = true;
   const old = document.getElementById('pg'+cur);
@@ -796,7 +861,6 @@ function goTo(n){
     updateDots();
     transitioning = false;
     if(n===4) startMeter();
-    // When reaching payment page in preview, remove banner
     if(n===6){
       const b = document.getElementById('previewBanner');
       if(b) b.remove();
@@ -1106,100 +1170,344 @@ document.querySelectorAll('button,.acard,.pdot,.ginput,.gtextarea').forEach(el=>
 });
 
 /* ════════════════════════════════════════════
-   §M  WEB AUDIO
+   §M  AMBIENT MUSIC  — soft romantic piano + pad
 ════════════════════════════════════════════*/
 const mBtn=document.getElementById('musicBtn');
-let aCtx,gain,playing=false;
-function startMusic(){
-  if(!aCtx){
-    aCtx=new (window.AudioContext||window.webkitAudioContext)();
-    gain=aCtx.createGain(); gain.gain.value=.045; gain.connect(aCtx.destination);
-    const notes=[261.63,293.66,329.63,392,440,349.23,392,523.25];
-    const mel=[0,2,4,5,4,2,0,2,4,7,5,4,2,4,5,7];
-    function n(f,t,d){
-      const o=aCtx.createOscillator(),g=aCtx.createGain();
-      o.type='sine';o.frequency.value=f;
-      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.38,t+.06);g.gain.exponentialRampToValueAtTime(.001,t+d);
-      o.connect(g);g.connect(gain);o.start(t);o.stop(t+d);
-    }
-    function lp(t){
-      mel.forEach((ni,i)=>{n(notes[ni],t+i*.5,.45);if(i%4===0)n(notes[ni]*.5,t+i*.5,.9);});
-      const dur=mel.length*.5+.6;
-      setTimeout(()=>{if(playing)lp(aCtx.currentTime);},dur*1000-200);
-    }
-    lp(aCtx.currentTime+.1);
-  } else { gain.gain.setTargetAtTime(.045,aCtx.currentTime,.1); }
-  playing=true;
+let aCtx, masterGain, playing=false, musicLoopTimer=null;
+
+function buildAudio(){
+  aCtx = new (window.AudioContext||window.webkitAudioContext)();
+
+  // Master gain — very low volume so it's background ambience
+  masterGain = aCtx.createGain();
+  masterGain.gain.setValueAtTime(0, aCtx.currentTime);
+  masterGain.gain.linearRampToValueAtTime(0.055, aCtx.currentTime + 2.5); // slow fade in
+  masterGain.connect(aCtx.destination);
 }
-function stopMusic(){ if(gain)gain.gain.setTargetAtTime(0,aCtx.currentTime,.2); playing=false; }
+
+// Soft reverb using convolver + impulse response
+function makeReverb(duration=2.5, decay=2.0){
+  const rate   = aCtx.sampleRate;
+  const length = rate * duration;
+  const impulse= aCtx.createBuffer(2, length, rate);
+  for(let c=0;c<2;c++){
+    const ch = impulse.getChannelData(c);
+    for(let i=0;i<length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/length,decay);
+  }
+  const conv = aCtx.createConvolver();
+  conv.buffer = impulse;
+  return conv;
+}
+
+// Play one soft piano note — sine + slight triangle blend for warmth
+function playNote(freq, startTime, duration, vol=0.18, type='sine'){
+  const osc  = aCtx.createOscillator();
+  const osc2 = aCtx.createOscillator();   // harmonic layer
+  const env  = aCtx.createGain();
+  const rev  = makeReverb(2.2, 2.4);
+
+  osc.type      = type;
+  osc.frequency.value = freq;
+  osc2.type     = 'triangle';
+  osc2.frequency.value = freq * 2.002;    // slightly detuned octave
+
+  const blend = aCtx.createGain();
+  blend.gain.value = 0.08;
+
+  // Envelope: slow attack, long release — piano-like
+  env.gain.setValueAtTime(0, startTime);
+  env.gain.linearRampToValueAtTime(vol, startTime + 0.08);
+  env.gain.exponentialRampToValueAtTime(vol * 0.6, startTime + duration * 0.3);
+  env.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+  osc.connect(env);
+  osc2.connect(blend); blend.connect(env);
+  env.connect(rev);
+  rev.connect(masterGain);
+
+  osc.start(startTime);  osc.stop(startTime + duration + 0.1);
+  osc2.start(startTime); osc2.stop(startTime + duration + 0.1);
+}
+
+// Soft pad chord — multiple sine waves = warm pad sound
+function playPad(freqs, startTime, duration, vol=0.022){
+  freqs.forEach((f, i)=>{
+    const osc = aCtx.createOscillator();
+    const env = aCtx.createGain();
+    const rev = makeReverb(3.5, 3.0);
+
+    osc.type = 'sine';
+    osc.frequency.value = f;
+
+    // Very slow attack (pad-like)
+    env.gain.setValueAtTime(0, startTime);
+    env.gain.linearRampToValueAtTime(vol, startTime + 1.2);
+    env.gain.setValueAtTime(vol, startTime + duration - 1.5);
+    env.gain.linearRampToValueAtTime(0, startTime + duration);
+
+    osc.connect(env);
+    env.connect(rev);
+    rev.connect(masterGain);
+
+    osc.start(startTime); osc.stop(startTime + duration + 0.2);
+  });
+}
+
+// The melody — Am pentatonic, gentle & emotional
+// Notes: A3=220, C4=261.6, D4=293.7, E4=329.6, G4=392, A4=440, C5=523.3, E5=659.3
+function playMelodyLoop(t){
+  const A3=220, C4=261.63, D4=293.66, E4=329.63, G4=392, A4=440, C5=523.25, E5=659.25;
+  const Am=[A3*2, C4*2, E4*2]; // Am chord pads (upper octave for brightness)
+  const F =[174.61*2, A3*2, C4*2];
+  const C =[C4,  E4,  G4];
+  const G =[196*2, B3=246.94, D4];
+
+  // Pad progressions — Am → F → C → G, 6s each
+  playPad([A3, C4, E4],         t,      6,  0.018);
+  playPad([174.61, A3, C4],     t+6,    6,  0.018);
+  playPad([C4, E4, G4],         t+12,   6,  0.018);
+  playPad([196, B3=246.94, D4], t+18,   6,  0.018);
+
+  // Melody line over the top — sparse, emotional
+  const mel = [
+    [A4, 0,    2.0, 0.15],
+    [C5, 2.2,  1.8, 0.12],
+    [E5, 4.2,  2.5, 0.14],
+    [D4, 7.0,  1.5, 0.10],
+    [C5, 8.8,  2.0, 0.13],
+    [A4, 11.0, 2.8, 0.15],
+    [G4, 14.0, 1.5, 0.10],
+    [A4, 16.0, 2.0, 0.12],
+    [C5, 18.2, 1.8, 0.14],
+    [E5, 20.5, 3.0, 0.15],
+    [D4, 23.5, 1.5, 0.10],
+  ];
+  mel.forEach(([freq, offset, dur, vol])=>{
+    playNote(freq, t+offset, dur, vol);
+  });
+
+  // Low bass notes — very soft, anchor the harmony
+  [[A3*.5,0,6],[174.61*.5,6,6],[C4*.5,12,6],[196*.5,18,6]].forEach(([f,o,d])=>{
+    playNote(f, t+o, d, 0.05, 'sine');
+  });
+
+  // Loop every 24 seconds
+  const loopDur = 24000;
+  if(playing) musicLoopTimer = setTimeout(()=>{ if(playing) playMelodyLoop(aCtx.currentTime); }, loopDur - 200);
+}
+
+function startMusic(){
+  if(!aCtx) buildAudio();
+  if(aCtx.state === 'suspended') aCtx.resume();
+
+  // Fade master back up if it was stopped
+  masterGain.gain.cancelScheduledValues(aCtx.currentTime);
+  masterGain.gain.setValueAtTime(masterGain.gain.value, aCtx.currentTime);
+  masterGain.gain.linearRampToValueAtTime(0.055, aCtx.currentTime + 1.5);
+
+  playing = true;
+  playMelodyLoop(aCtx.currentTime + 0.1);
+}
+
+function stopMusic(){
+  playing = false;
+  clearTimeout(musicLoopTimer);
+  if(masterGain){
+    masterGain.gain.cancelScheduledValues(aCtx.currentTime);
+    masterGain.gain.setValueAtTime(masterGain.gain.value, aCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(0, aCtx.currentTime + 1.2); // gentle fade out
+  }
+}
+
 mBtn.addEventListener('click',()=>{
-  if(!playing){startMusic();mBtn.textContent='🎶';mBtn.classList.add('spin');}
-  else{stopMusic();mBtn.textContent='🎵';mBtn.classList.remove('spin');}
+  if(!playing){ startMusic(); mBtn.textContent='🎶'; mBtn.classList.add('spin'); }
+  else        { stopMusic();  mBtn.textContent='🎵'; mBtn.classList.remove('spin'); }
 });
 
+/* ╔══════════════════════════════════════════════════════════╗
+   ║              ⚙️  SELLER CONFIGURATION                   ║
+   ║  Everything you need to change is RIGHT HERE.           ║
+   ║  Do NOT touch anything outside this block               ║
+   ║  unless you know what you're doing.                     ║
+   ╠══════════════════════════════════════════════════════════╣
+   ║                                                          ║
+   ║  HOW TO CONNECT YOUR RAZORPAY ACCOUNT:                  ║
+   ║  1. Go to https://razorpay.com and sign up / log in     ║
+   ║  2. Dashboard → Settings → API Keys → Generate Key      ║
+   ║  3. Copy your KEY ID (starts with rzp_live_ or          ║
+   ║     rzp_test_ for testing)                              ║
+   ║  4. Paste it below as RAZORPAY_KEY_ID                   ║
+   ║  ⚠️  NEVER share your Key Secret — only Key ID goes here ║
+   ║                                                          ║
+   ╚══════════════════════════════════════════════════════════╝ */
+
+const CONFIG = {
+
+  // ── RAZORPAY ─────────────────────────────────────────────
+  // Paste your Key ID from Razorpay Dashboard → Settings → API Keys
+  RAZORPAY_KEY_ID:  'rzp_live_SvD983baZpuP2A',
+
+  // ── PRICING ──────────────────────────────────────────────
+  // Base price in RUPEES (we convert to paise automatically)
+  BASE_PRICE_INR:   99,                             // ← CHANGE THIS (e.g. 149, 199)
+
+  // What appears in the Razorpay checkout window
+  BUSINESS_NAME:    'Love Letter Creator',          // ← CHANGE THIS
+  DESCRIPTION:      'Personalised Apology Love Letter — One-time unlock',
+
+  // Optional: URL to your logo (shown inside Razorpay popup)
+  // Leave as '' to use default
+  LOGO_URL:         '',
+
+  // ── DISCOUNT CODES ───────────────────────────────────────
+  // Add as many codes as you want.
+  // type: 'percent'  → discount is a percentage  (e.g. 20 = 20% off)
+  // type: 'flat'     → discount is a flat ₹ amount (e.g. 30 = ₹30 off)
+  // Codes are case-INSENSITIVE (user can type LOVE10 or love10)
+  DISCOUNT_CODES: {
+    'LOVE10':   { type: 'percent', value: 10,  label: '10% off' },
+    'ROSE20':   { type: 'percent', value: 20,  label: '20% off' },
+    'SORRY50':  { type: 'flat',    value: 50,  label: '₹50 off' },
+    'FREE100':  { type: 'percent', value: 100, label: '100% off — Free!' },
+    // Add more codes below:
+    // 'YOURCODE': { type: 'percent', value: 30, label: '30% off' },
+  }
+
+};
+/* ══════════════════════════════════════════════════════════
+   END OF SELLER CONFIGURATION — do not edit below this line
+   unless you are a developer.
+══════════════════════════════════════════════════════════ */
+
+
 /* ════════════════════════════════════════════
-   §P  RAZORPAY PAYMENT
-   ─────────────────────────────────────────
-   SETUP INSTRUCTIONS:
-   1. Sign up at https://razorpay.com
-   2. Go to Dashboard → Settings → API Keys
-   3. Replace RAZORPAY_KEY_ID below with your
-      actual Key ID (starts with rzp_live_ for
-      production or rzp_test_ for testing)
-   4. Amount is in paise (₹99 = 9900 paise)
-   5. For production you MUST create an order
-      server-side; for a simple static site you
-      can use the client-only flow below, which
-      is fine for low-volume personal products.
+   §P  PAYMENT ENGINE
 ════════════════════════════════════════════*/
+let paymentDone    = false;
+let appliedDiscount = null;   // { type, value, label, code }
 
-// ⚠️  REPLACE THIS WITH YOUR RAZORPAY KEY ID
-const RAZORPAY_KEY_ID = 'rzp_test_XXXXXXXXXXXXXXXX';
+// Compute final price in paise
+function getFinalPaise(){
+  const base = CONFIG.BASE_PRICE_INR;
+  if(!appliedDiscount) return base * 100;
+  let final = base;
+  if(appliedDiscount.type === 'percent'){
+    final = base - (base * appliedDiscount.value / 100);
+  } else {
+    final = base - appliedDiscount.value;
+  }
+  final = Math.max(0, Math.round(final));
+  return final * 100;
+}
 
-let paymentDone = false;
+function getFinalRupees(){
+  return getFinalPaise() / 100;
+}
 
+// ── Discount Code UI ─────────────────────────────────────
+function applyDiscountCode(){
+  const input = document.getElementById('discountInput');
+  const code  = (input.value || '').trim().toUpperCase();
+  const msgEl = document.getElementById('discountMsg');
+
+  if(!code){ showDiscountMsg('Enter a discount code first 💌', false); return; }
+
+  const entry = CONFIG.DISCOUNT_CODES[code];
+  if(!entry){
+    showDiscountMsg('Invalid code. Try again 🥀', false);
+    input.style.borderColor = 'rgba(192,57,43,.5)';
+    return;
+  }
+
+  appliedDiscount = { ...entry, code };
+  input.style.borderColor = 'rgba(58,122,74,.4)';
+  showDiscountMsg('✅ ' + entry.label + ' applied!', true);
+  updatePriceDisplay();
+}
+
+function removeDiscount(){
+  appliedDiscount = null;
+  const input = document.getElementById('discountInput');
+  if(input){ input.value = ''; input.style.borderColor = ''; }
+  showDiscountMsg('', false);
+  updatePriceDisplay();
+}
+
+function showDiscountMsg(msg, success){
+  const el = document.getElementById('discountMsg');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = success ? '#3a7a4a' : 'var(--rose2)';
+}
+
+function updatePriceDisplay(){
+  const final   = getFinalRupees();
+  const base    = CONFIG.BASE_PRICE_INR;
+  const priceEl = document.getElementById('displayPrice');
+  const btnEl   = document.getElementById('payBtn');
+  const origEl  = document.getElementById('origPrice');
+  const tagEl   = document.getElementById('discountTag');
+  const rmEl    = document.getElementById('removeDiscount');
+
+  if(appliedDiscount){
+    if(origEl){ origEl.style.display = 'inline'; origEl.textContent = '₹'+base; }
+    if(tagEl){ tagEl.style.display = 'inline-block'; tagEl.textContent = '−'+appliedDiscount.label; }
+    if(rmEl) rmEl.style.display = 'inline';
+  } else {
+    if(origEl) origEl.style.display = 'none';
+    if(tagEl)  tagEl.style.display  = 'none';
+    if(rmEl)   rmEl.style.display   = 'none';
+  }
+
+  if(priceEl){
+    priceEl.textContent = final === 0 ? 'Free!' : '₹'+final;
+  }
+  if(btnEl){
+    btnEl.textContent = final === 0
+      ? 'Get My Free Link 🌹'
+      : 'Pay ₹'+final+' & Get My Link 🌹';
+  }
+}
+
+// ── Razorpay checkout ────────────────────────────────────
 function startPayment(){
+  const paise = getFinalPaise();
+
+  // FREE — skip payment entirely
+  if(paise === 0){
+    onPaymentSuccess({ razorpay_payment_id: 'FREE-'+Date.now() });
+    return;
+  }
+
   if(typeof Razorpay === 'undefined'){
     showToast('Payment SDK not loaded. Check your internet connection.');
     return;
   }
 
   const options = {
-    key: RAZORPAY_KEY_ID,
-    amount: 9900,          // ₹99 in paise — change as needed
-    currency: 'INR',
-    name: 'Love Letter Creator',
-    description: 'Personalised Apology Love Letter — One-time unlock',
-    image: '',             // Optional: URL to your logo
-    prefill: {
-      name:  '',
-      email: '',
-      contact: ''
-    },
+    key:         CONFIG.RAZORPAY_KEY_ID,
+    amount:      paise,
+    currency:    'INR',
+    name:        CONFIG.BUSINESS_NAME,
+    description: CONFIG.DESCRIPTION,
+    image:       CONFIG.LOGO_URL,
+    prefill: { name: '', email: '', contact: '' },
     notes: {
-      product: 'love-letter-unlock'
+      product:       'love-letter-unlock',
+      discount_code: appliedDiscount ? appliedDiscount.code : 'none'
     },
-    theme: {
-      color: '#d4606a'     // Matches site rose colour
-    },
-    handler: function(response){
-      // Called on successful payment
-      onPaymentSuccess(response);
-    },
+    theme: { color: '#d4606a' },
+    handler: function(response){ onPaymentSuccess(response); },
     modal: {
-      ondismiss: function(){
-        showToast('Payment cancelled. Tap again to unlock 🌹');
-      }
+      ondismiss: function(){ showToast('Payment cancelled. Tap again to unlock 🌹'); }
     }
   };
 
   const rzp = new Razorpay(options);
-
-  rzp.on('payment.failed', function(response){
-    showToast('Payment failed: ' + (response.error.description || 'Please try again') + ' 💔');
-    console.error('Razorpay error:', response.error);
+  rzp.on('payment.failed', function(r){
+    showToast('Payment failed: ' + (r.error.description || 'Please try again') + ' 💔');
+    console.error('Razorpay error:', r.error);
   });
-
   rzp.open();
 }
 
@@ -1211,22 +1519,22 @@ function onPaymentSuccess(response){
   const ps = document.getElementById('paySuccess');
   ps.style.display = 'flex';
 
-  // Shrink payment wall
+  // Shrink payment wall after a moment
   setTimeout(()=>{
     const pw = document.getElementById('payWall');
     pw.style.transition = 'all .6s cubic-bezier(.4,0,.2,1)';
-    pw.style.maxHeight = '120px';
-    pw.style.overflow = 'hidden';
-    pw.style.opacity = '.6';
+    pw.style.maxHeight  = '120px';
+    pw.style.overflow   = 'hidden';
+    pw.style.opacity    = '.6';
   }, 1800);
 
-  // Generate and reveal the link
+  // Generate and reveal link
   setTimeout(()=>{
     generateLink();
     const ls = document.getElementById('linkSection');
-    ls.style.display = 'block';
-    ls.style.opacity = '0';
-    ls.style.transform = 'translateY(16px)';
+    ls.style.display    = 'block';
+    ls.style.opacity    = '0';
+    ls.style.transform  = 'translateY(16px)';
     ls.style.transition = 'all .6s ease';
     setTimeout(()=>{ ls.style.opacity='1'; ls.style.transform='none'; }, 50);
     burstHearts(window.innerWidth/2, window.innerHeight/2, 22);
@@ -1234,6 +1542,12 @@ function onPaymentSuccess(response){
     ls.scrollIntoView({behavior:'smooth', block:'start'});
   }, 2200);
 }
+
+// Run once on page load to set correct price from CONFIG
+document.addEventListener('DOMContentLoaded', updatePriceDisplay);
+// Also run immediately in case DOM is already ready
+updatePriceDisplay();
+
 
 /* ════════════════════════════════════════════
    §N  LINK GENERATOR
@@ -1244,7 +1558,13 @@ function generateLink(){
   const from=document.getElementById('f_from').value.trim();
   const msg=document.getElementById('f_msg').value.trim();
   const base=location.origin+location.pathname;
-  const q=new URLSearchParams({name:encodeURIComponent(name),from:encodeURIComponent(from),msg:encodeURIComponent(msg)});
+  // view=1 tells the page this is a recipient link — skip form & payment
+  const q=new URLSearchParams({
+    view: '1',
+    name: encodeURIComponent(name),
+    from: encodeURIComponent(from),
+    msg:  encodeURIComponent(msg)
+  });
   genLink=`${base}?${q}`;
   document.getElementById('generatedUrl').textContent=genLink;
   resetCopyBtn();
